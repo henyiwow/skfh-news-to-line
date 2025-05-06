@@ -1,0 +1,28 @@
+name: Skfh News Push
+
+on:
+  schedule:
+    - cron: '0 1 * * *'  # 每天台灣時間上午9點（UTC+8）
+  workflow_dispatch:      # 允許手動執行
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run bot script
+        run: python main.py
+        env:
+          ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
+          USER_ID: ${{ secrets.LINE_USER_ID }}
