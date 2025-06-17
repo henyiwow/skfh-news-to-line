@@ -32,15 +32,75 @@ def normalize_title(title):
     title = re.sub(r'\s+', ' ', title)               # 多餘空白
     return title.strip().lower()
 
-def get_article_summary(url, max_chars=100):
-    """獲取文章摘要（改良版）"""
+def decode_google_news_url(google_url):
+    """解碼 Google News 網址，獲取真實新聞網址"""
     try:
-        # 先檢查是否為 Google News 網址
-        if 'news.google.com' in url:
-            print(f"    ⚠️ Google News 網址，可能無法獲取摘要: {url[:60]}...")
-            return "Google News 連結，請點擊查看完整內容"
+        import base64
+        import urllib.parse
         
-        # 更完整的 headers
+        if '/articles/' in google_url:
+            # 提取編碼的部分
+            encoded_part = google_url.split('/articles/')[1].split('?')[0]
+            
+            # 移除 CBM 前綴（如果存在）
+            if encoded_part.startswith('CBM'):
+                encoded_part = encoded_part[3:]
+            
+            # 嘗試 base64 解碼
+            try:
+                decoded_bytes = base64.b64decode(encoded_part + '==')  # 加上padding
+                decoded_url = decoded_bytes.decode('utf-8', errors='ignore')
+                
+                # 尋找 URL 模式
+                import re
+                url_pattern = r'https?://[^\s"<>{}|\\^`\[\]]*'
+                urls = re.findall(url_pattern, decoded_url)
+                
+                if urls:
+                    return urls[0]
+            except:
+                pass
+        
+        return None
+    except Exception as e:
+        print(f"    ❌ 解碼失敗: {e}")
+        return None
+
+def get_article_summary(url, max_chars=100):
+    """獲取文章摘要（Google News 增強版）"""
+    try:
+        original_url = url
+        print(f"    🔍 原始網址: {url[:80]}...")
+        
+        # 如果是 Google News 網址，嘗試解碼獲取真實網址
+        if 'news.google.com' in url:
+            print(f"    🔄 偵測到 Google News 網址，嘗試解碼...")
+            
+            # 方法1：嘗試解碼
+            real_url = decode_google_news_url(url)
+            if real_url:
+                print(f"    ✅ 解碼成功: {real_url[:80]}...")
+                url = real_url
+            else:
+                # 方法2：直接訪問 Google News 獲取重定向
+                print(f"    🔄 直接訪問 Google News 獲取重定向...")
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+                }
+                
+                response = requests.get(original_url, headers=headers, timeout=10, allow_redirects=True)
+                final_url = response.url
+                
+                if final_url != original_url and 'news.google.com' not in final_url:
+                    print(f"    ✅ 重定向成功: {final_url[:80]}...")
+                    url = final_url
+                else:
+                    print(f"    ⚠️ 無法獲取重定向，可能被阻擋")
+                    return "無法解析 Google News 連結"
+        
+        # 現在用真實網址獲取摘要
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -53,43 +113,43 @@ def get_article_summary(url, max_chars=100):
             "Sec-Fetch-Site": "none",
         }
         
-        print(f"    🔍 嘗試獲取摘要: {url[:60]}...")
-        response = requests.get(url, headers=headers, timeout=8, allow_redirects=True)
+        print(f"    📖 正在獲取摘要...")
+        response = requests.get(url, headers=headers, timeout=12, allow_redirects=True)
         
-        # 檢查最終 URL
-        final_url = response.url
-        print(f"    📍 最終 URL: {final_url[:60]}...")
-        
-        # 檢查是否成功獲取內容
         if response.status_code != 200:
             print(f"    ❌ HTTP 狀態碼: {response.status_code}")
             return f"無法獲取摘要（狀態碼：{response.status_code}）"
-            
+        
+        response.encoding = 'utf-8'
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 先嘗試取 meta description
+        # 優先嘗試 meta 標籤
         meta_desc = soup.find('meta', attrs={'name': 'description'})
         if meta_desc and meta_desc.get('content'):
             content_text = meta_desc.get('content').strip()
-            print(f"    ✅ 從 meta description 獲取: {content_text[:50]}...")
+            print(f"    ✅ 從 meta description 獲取摘要")
         else:
             # 嘗試 og:description
             og_desc = soup.find('meta', attrs={'property': 'og:description'})
             if og_desc and og_desc.get('content'):
                 content_text = og_desc.get('content').strip()
-                print(f"    ✅ 從 og:description 獲取: {content_text[:50]}...")
+                print(f"    ✅ 從 og:description 獲取摘要")
             else:
-                print(f"    ⚠️ 無法從 meta 標籤獲取摘要，嘗試解析內容...")
+                print(f"    🔍 解析文章內容...")
                 
                 # 移除不需要的標籤
                 for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', 'form', 'button']):
                     tag.decompose()
                 
-                # 嘗試找到文章內容
+                # 台灣新聞網站常見的內容選擇器
                 content_selectors = [
-                    'article p', '.content p', '.article-content p', 
-                    '.news-content p', '.post-content p', 'main p',
-                    '.entry-content p', '.story-content p', '.article-body p'
+                    'article p', '.article p', '.content p', '.article-content p',
+                    '.news-content p', '.post-content p', 'main p', '.main p',
+                    '.entry-content p', '.story-content p', '.article-body p',
+                    '.story_content p', '.news_content p', '.article_content p',
+                    # 特定台灣媒體
+                    '.story-body p', '.article-detail p', '.news-detail p',
+                    '.content-detail p', '[class*="content"] p', '[class*="article"] p'
                 ]
                 
                 content_text = ""
@@ -98,14 +158,19 @@ def get_article_summary(url, max_chars=100):
                         paragraphs = soup.select(selector)
                         if paragraphs:
                             valid_paragraphs = []
-                            for p in paragraphs[:3]:
+                            for p in paragraphs[:5]:
                                 text = p.get_text().strip()
-                                if len(text) > 30 and '點擊' not in text and '更多' not in text:
+                                # 更嚴格的內容過濾
+                                if (len(text) > 30 and 
+                                    not text.isdigit() and 
+                                    '點擊' not in text and '更多' not in text and
+                                    '廣告' not in text and '訂閱' not in text and
+                                    '分享' not in text and '留言' not in text):
                                     valid_paragraphs.append(text)
                             
                             if valid_paragraphs:
-                                content_text = " ".join(valid_paragraphs[:1])  # 只取第一段
-                                print(f"    ✅ 從內容解析獲取: {content_text[:50]}...")
+                                content_text = valid_paragraphs[0]  # 只取第一段
+                                print(f"    ✅ 從文章內容獲取摘要")
                                 break
                     except:
                         continue
@@ -116,7 +181,7 @@ def get_article_summary(url, max_chars=100):
         
         # 清理和截取文本
         if content_text:
-            # 移除多餘的空白和特殊字符
+            # 清理文本
             content_text = re.sub(r'\s+', ' ', content_text)
             content_text = re.sub(r'[^\w\s\u4e00-\u9fff，。！？；：「」『』（）、]', '', content_text)
             content_text = content_text.strip()
@@ -136,7 +201,7 @@ def get_article_summary(url, max_chars=100):
         print(f"    🔌 連線錯誤")
         return "網路連線錯誤"
     except Exception as e:
-        print(f"    ❌ 其他錯誤: {str(e)[:50]}")
+        print(f"    ❌ 未知錯誤: {str(e)[:50]}")
         return f"獲取摘要失敗"
 
 def shorten_url(long_url):
@@ -240,7 +305,7 @@ def fetch_news():
             if is_similar_simple(title, known_titles):  # 使用簡化版相似度檢測
                 continue
 
-            # ✅ 獲取文章摘要
+            # ✅ 獲取文章摘要（增強版）
             print(f"📰 正在處理: {title[:40]}...")
             summary = get_article_summary(link)
             
