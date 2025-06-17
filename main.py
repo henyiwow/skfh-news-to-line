@@ -33,8 +33,13 @@ def normalize_title(title):
     return title.strip().lower()
 
 def get_article_summary(url, max_chars=100):
-    """獲取文章摘要（增強版）"""
+    """獲取文章摘要（改良版）"""
     try:
+        # 先檢查是否為 Google News 網址
+        if 'news.google.com' in url:
+            print(f"    ⚠️ Google News 網址，可能無法獲取摘要: {url[:60]}...")
+            return "Google News 連結，請點擊查看完整內容"
+        
         # 更完整的 headers
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -43,107 +48,75 @@ def get_article_summary(url, max_chars=100):
             "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
         }
         
-        # 處理 Google News 重定向網址
-        if 'news.google.com' in url and '/articles/' in url:
-            # 對於 Google News 網址，嘗試提取真實網址
-            try:
-                response = requests.get(url, headers=headers, timeout=8, allow_redirects=True)
-                actual_url = response.url
-                if actual_url != url:
-                    url = actual_url
-            except:
-                pass
+        print(f"    🔍 嘗試獲取摘要: {url[:60]}...")
+        response = requests.get(url, headers=headers, timeout=8, allow_redirects=True)
         
-        response = requests.get(url, headers=headers, timeout=12, allow_redirects=True)
-        response.encoding = 'utf-8'
+        # 檢查最終 URL
+        final_url = response.url
+        print(f"    📍 最終 URL: {final_url[:60]}...")
         
         # 檢查是否成功獲取內容
         if response.status_code != 200:
-            return "無法獲取摘要"
+            print(f"    ❌ HTTP 狀態碼: {response.status_code}")
+            return f"無法獲取摘要（狀態碼：{response.status_code}）"
             
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 移除不需要的標籤
-        for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', 'form', 'button']):
-            tag.decompose()
-        
-        # 更全面的內容選擇器
-        content_selectors = [
-            # 新聞網站常見的內容區域
-            'article p', '.article p', '.content p', '.article-content p', 
-            '.news-content p', '.post-content p', 'main p', '.main p',
-            '.entry-content p', '.story-content p', '.article-body p',
-            '.news-body p', '.story p', '.post p', '.article-text p',
-            # 特定新聞網站
-            '.story_content p', '.news_content p', '.article_content p',
-            '.post_content p', '.content_detail p', '.detail_content p',
-            # 通用選擇器
-            '[class*="content"] p', '[class*="article"] p', '[class*="story"] p',
-            '[class*="news"] p', '[class*="post"] p', '[class*="detail"] p'
-        ]
-        
-        content_text = ""
-        
-        # 嘗試各種選擇器
-        for selector in content_selectors:
-            try:
-                paragraphs = soup.select(selector)
-                if paragraphs and len(paragraphs) > 0:
-                    # 取前3段，過濾掉太短的段落
-                    valid_paragraphs = []
-                    for p in paragraphs[:5]:  # 檢查前5段
-                        text = p.get_text().strip()
-                        # 過濾掉太短、純數字、或明顯是導航/廣告的段落
-                        if (len(text) > 20 and 
-                            not text.isdigit() and 
-                            '點擊' not in text and 
-                            '更多' not in text and
-                            '廣告' not in text and
-                            '訂閱' not in text):
-                            valid_paragraphs.append(text)
-                    
-                    if len(valid_paragraphs) >= 1:
-                        content_text = " ".join(valid_paragraphs[:2])
-                        break
-            except:
-                continue
-        
-        # 如果還是沒找到，使用更寬鬆的方法
-        if not content_text:
-            try:
-                # 尋找所有段落，不限制選擇器
-                all_paragraphs = soup.find_all('p')
-                valid_paragraphs = []
-                for p in all_paragraphs:
-                    text = p.get_text().strip()
-                    if (len(text) > 25 and 
-                        not text.isdigit() and 
-                        len([c for c in text if c.isalpha() or '\u4e00' <= c <= '\u9fff']) > 10):
-                        valid_paragraphs.append(text)
+        # 先嘗試取 meta description
+        meta_desc = soup.find('meta', attrs={'name': 'description'})
+        if meta_desc and meta_desc.get('content'):
+            content_text = meta_desc.get('content').strip()
+            print(f"    ✅ 從 meta description 獲取: {content_text[:50]}...")
+        else:
+            # 嘗試 og:description
+            og_desc = soup.find('meta', attrs={'property': 'og:description'})
+            if og_desc and og_desc.get('content'):
+                content_text = og_desc.get('content').strip()
+                print(f"    ✅ 從 og:description 獲取: {content_text[:50]}...")
+            else:
+                print(f"    ⚠️ 無法從 meta 標籤獲取摘要，嘗試解析內容...")
                 
-                if valid_paragraphs:
-                    content_text = " ".join(valid_paragraphs[:2])
-            except:
-                pass
+                # 移除不需要的標籤
+                for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', 'form', 'button']):
+                    tag.decompose()
+                
+                # 嘗試找到文章內容
+                content_selectors = [
+                    'article p', '.content p', '.article-content p', 
+                    '.news-content p', '.post-content p', 'main p',
+                    '.entry-content p', '.story-content p', '.article-body p'
+                ]
+                
+                content_text = ""
+                for selector in content_selectors:
+                    try:
+                        paragraphs = soup.select(selector)
+                        if paragraphs:
+                            valid_paragraphs = []
+                            for p in paragraphs[:3]:
+                                text = p.get_text().strip()
+                                if len(text) > 30 and '點擊' not in text and '更多' not in text:
+                                    valid_paragraphs.append(text)
+                            
+                            if valid_paragraphs:
+                                content_text = " ".join(valid_paragraphs[:1])  # 只取第一段
+                                print(f"    ✅ 從內容解析獲取: {content_text[:50]}...")
+                                break
+                    except:
+                        continue
+                
+                if not content_text:
+                    print(f"    ❌ 無法解析文章內容")
+                    return "無法獲取文章摘要"
         
-        # 最後手段：嘗試取 meta description
-        if not content_text:
-            try:
-                meta_desc = soup.find('meta', attrs={'name': 'description'})
-                if meta_desc and meta_desc.get('content'):
-                    content_text = meta_desc.get('content').strip()
-                else:
-                    # 嘗試 og:description
-                    og_desc = soup.find('meta', attrs={'property': 'og:description'})
-                    if og_desc and og_desc.get('content'):
-                        content_text = og_desc.get('content').strip()
-            except:
-                pass
-        
-        # 清理文本
+        # 清理和截取文本
         if content_text:
+            # 移除多餘的空白和特殊字符
             content_text = re.sub(r'\s+', ' ', content_text)
             content_text = re.sub(r'[^\w\s\u4e00-\u9fff，。！？；：「」『』（）、]', '', content_text)
             content_text = content_text.strip()
@@ -157,12 +130,14 @@ def get_article_summary(url, max_chars=100):
         return "無法獲取摘要"
         
     except requests.exceptions.Timeout:
-        return "網站回應超時，無法獲取摘要"
+        print(f"    ⏰ 請求超時")
+        return "網站回應超時"
     except requests.exceptions.ConnectionError:
-        return "網路連線錯誤，無法獲取摘要"
+        print(f"    🔌 連線錯誤")
+        return "網路連線錯誤"
     except Exception as e:
-        print(f"⚠️ 獲取摘要失敗 ({url[:50] if url else 'unknown'}...): {e}")
-        return "無法獲取摘要"
+        print(f"    ❌ 其他錯誤: {str(e)[:50]}")
+        return f"獲取摘要失敗"
 
 def shorten_url(long_url):
     try:
