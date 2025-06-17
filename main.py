@@ -326,15 +326,34 @@ def send_message_by_category(news_by_category):
         if len(full_message + no_news_section) <= max_length:
             full_message += no_news_section
     
+    # 🆕 先顯示訊息內容
+    print("\n" + "="*60)
+    print("📱 完整訊息內容預覽：")
+    print("="*60)
+    print(full_message)
+    print("="*60 + "\n")
+    
     # 發送單一訊息
     if full_message.strip():
         broadcast_message(full_message.strip())
     else:
         # 如果沒有任何內容，發送簡單訊息
         simple_message = f"【{today} 業企部 今日新聞整理】\n暫無相關新聞"
+        print("\n" + "="*60)
+        print("📱 簡單訊息內容：")
+        print("="*60)
+        print(simple_message)
+        print("="*60 + "\n")
         broadcast_message(simple_message)
 
 def broadcast_message(message):
+    if not ACCESS_TOKEN or ACCESS_TOKEN == "未設定":
+        print("⚠️ ACCESS_TOKEN 未設定，僅顯示訊息內容：")
+        print("=" * 50)
+        print(message)
+        print("=" * 50)
+        return
+    
     url = 'https://api.line.me/v2/bot/message/broadcast'
     headers = {
         'Content-Type': 'application/json',
