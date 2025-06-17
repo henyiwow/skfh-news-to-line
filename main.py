@@ -204,11 +204,15 @@ def is_taiwan_news(source_name, link):
     return False
 
 def is_similar(title, known_titles_vecs):
+    """語意相似度檢測"""
     norm_title = normalize_title(title)
     vec = model.encode([norm_title])
     if not known_titles_vecs:
         return False
-    sims = cosine_similarity(vec, known_titles_vecs)[0]
+    
+    # 將已知標題向量轉換為 numpy 陣列
+    known_vecs_array = np.array(known_titles_vecs)
+    sims = cosine_similarity(vec, known_vecs_array)[0]
     return np.max(sims) >= SIMILARITY_THRESHOLD
 
 def fetch_news():
@@ -348,6 +352,7 @@ def broadcast_message(message):
     print("📤 LINE 回傳內容：", res.text)
 
 if __name__ == "__main__":
+    print("🤖 初始化語意模型...")
     news = fetch_news()
     if news:
         send_message_by_category(news)
