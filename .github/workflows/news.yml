@@ -24,6 +24,12 @@ jobs:
         pip install beautifulsoup4==4.12.2
         pip install lxml==4.9.3
     
+    - name: Verify installations
+      run: |
+        python -c "import requests; print('✅ requests OK')"
+        python -c "import bs4; print('✅ beautifulsoup4 OK')"
+        python -c "import lxml; print('✅ lxml OK')"
+    
     - name: Run news fetch script
       env:
         ACCESS_TOKEN: ${{ secrets.LINE_ACCESS_TOKEN }}
